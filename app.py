@@ -49,7 +49,3 @@ def home():
 def pix():
     return webhook()
 
-# rota GET para testar no navegador
-@app.route('/', methods=['GET'])
-def home():
-    return "Bot ativo ✅", 200
