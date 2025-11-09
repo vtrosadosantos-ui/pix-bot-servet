@@ -41,11 +41,15 @@ def webhook():
 
     return {"ok": True}, 200
 
-@app.route('/')
-def home():
+# ---- rotas finais ----
+# GET /  → para você testar no navegador
+@app.route('/', methods=['GET'])
+def status():
     return "Bot ativo ✅", 200
-    # rota extra para o Mercado Pago (POST /pix)
+
+# POST /pix  → webhook do Mercado Pago
 @app.route('/pix', methods=['POST'])
-def pix():
+def pix_webhook():
     return webhook()
+# ----------------------
 
