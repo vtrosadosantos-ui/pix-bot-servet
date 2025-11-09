@@ -44,3 +44,12 @@ def webhook():
 @app.route('/')
 def home():
     return "Bot ativo ✅", 200
+    # rota extra para o Mercado Pago (POST /pix)
+@app.route('/pix', methods=['POST'])
+def pix():
+    return webhook()
+
+# rota GET para testar no navegador
+@app.route('/', methods=['GET'])
+def home():
+    return "Bot ativo ✅", 200
