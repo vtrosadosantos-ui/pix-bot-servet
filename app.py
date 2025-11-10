@@ -1,6 +1,5 @@
-from flask import Flask, request, jsonify, request
-import requests
-import os
+from flask import Flask, request, jsonify
+import requests, os
 
 app = Flask(__name__)
 
@@ -14,42 +13,62 @@ def tg(msg):
     try:
         requests.post(TG_URL, json={"chat_id": CHAT_ID, "text": msg})
     except Exception as e:
-        print("Erro enviando ao Telegram:", e)
+        print("Erro enviando TG:", e)
 
 @app.get("/")
-def home():
+def health():
     return "Servidor ativo ✅", 200
 
-# Envia uma mensagem de teste pro seu grupo: /send?msg=Ola
-@app.get("/send")
-def send():
-    msg = request.args.get("msg", "teste")
-    tg(f"🔔 Teste: {msg}")
-    return "ok", 200
-
-@app.post("/")
+# Aceita GET e POST, porque o MP às vezes envia dados na querystring
+@app.route("/", methods=["POST", "GET"])
 def webhook():
-    data = request.get_json(force=True) or {}
-    # 1) Aviso pré-processamento (DEBUG)
-    live = data.get("live_mode")
-    pid = (data.get("data") or {}).get("id") or data.get("id")
-    tg(f"📩 Webhook do MP chegou (pré)\nlive_mode={live}\nid={pid}")
+    # 1) Tenta ler JSON (pode não existir)
+    try:
+        data = request.get_json(force=False, silent=True) or {}
+    except:
+        data = {}
 
-    # 2) Ignora testes do painel (evita 401 e SPAM)
-    if str(pid) == "123456" or live is False:
+    # 2) Lê parâmetros de query (ex.: ?type=payment&data_id=123...)
+    args = request.args or {}
+
+    # 3) Coleta o máximo de pistas do ID e do tipo
+    live_mode = data.get("live_mode")
+    payment_id = (
+        (data.get("data") or {}).get("id")
+        or data.get("id")
+        or args.get("data.id")
+        or args.get("data_id")
+        or args.get("id")
+    )
+    event_type = (
+        data.get("type")
+        or data.get("topic")
+        or args.get("type")
+        or args.get("topic")
+    )
+
+    # DEBUG pré-processamento
+    tg(f"📩 Webhook do MP chegou (pré)\nlive_mode={live_mode}\nid={payment_id}\ntype={event_type}")
+
+    # Ignora eventos de teste do painel
+    if str(payment_id) == "123456" or live_mode is False:
         return jsonify({"ok": True, "ignored": "test_event"}), 200
 
-    if not pid:
-        tg("⚠️ Webhook sem payment_id.")
-        return jsonify({"ok": False, "msg": "no payment id"}), 400
+    if not payment_id:
+        # Loga o bruto para diagnóstico
+        tg("⚠️ Webhook sem payment_id. Vou logar bruto nos logs do Render.")
+        print("RAW JSON:", data)
+        print("RAW ARGS:", dict(args))
+        return jsonify({"ok": False, "msg": "no payment id"}), 200  # 200 para não re-tentar
 
-    # 3) Consulta detalhes do pagamento
+    # 4) Consulta detalhes do pagamento
     headers = {"Authorization": f"Bearer {MP_ACCESS_TOKEN}"}
-    url = f"https://api.mercadopago.com/v1/payments/{pid}"
+    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     r = requests.get(url, headers=headers)
 
     if r.status_code != 200:
-        tg(f"❌ Consulta ao MP falhou (HTTP {r.status_code}).\nID: {pid}")
+        tg(f"❌ Consulta ao MP falhou (HTTP {r.status_code}).\nID: {payment_id}")
+        print("MP RESP:", r.status_code, r.text)
         return jsonify({"ok": False, "mp_status": r.status_code}), 200
 
     info = r.json()
@@ -58,8 +77,8 @@ def webhook():
     payer = info.get("payer", {}).get("email") or info.get("payer", {}).get("first_name") or "Cliente"
 
     if status == "approved":
-        tg(f"💰 Novo Pix recebido!\nValor: R$ {amount:.2f}\nCliente: {payer}\nID: {pid}")
+        tg(f"💰 Novo Pix recebido!\nValor: R$ {float(amount):.2f}\nCliente: {payer}\nID: {payment_id}")
     else:
-        tg(f"ℹ️ Pagamento status: {status}\nID: {pid}")
+        tg(f"ℹ️ Pagamento status: {status}\nID: {payment_id}")
 
     return jsonify({"ok": True}), 200
